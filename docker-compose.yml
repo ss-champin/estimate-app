@@ -1,0 +1,34 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: estimate_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: estimate
+      POSTGRES_PASSWORD: estimate_password
+      POSTGRES_DB: estimate_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U estimate -d estimate_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ブラウザで DB を閲覧（ログイン不要。Docker 起動後に http://localhost:5050 ）
+  pgweb:
+    image: sosedoff/pgweb:latest
+    container_name: estimate_pgweb
+    restart: unless-stopped
+    environment:
+      PGWEB_DATABASE_URL: postgres://estimate:estimate_password@postgres:5432/estimate_dev?sslmode=disable
+    ports:
+      - "5050:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

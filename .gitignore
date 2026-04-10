@@ -1,0 +1,96 @@
+# =============================================================================
+# EstiMate モノレポ — コミットしてはいけないものを除外
+# テンプレートは *.example を残し、実値は .env.local 等のみローカルで管理する
+# =============================================================================
+
+# --- 秘密情報・鍵（リポジトリに載せない） ---
+.env
+.env.local
+.env.production
+.env.production.local
+.env.development.local
+.env.test.local
+.env.*.local
+!.env.example
+!**/.env.example
+!**/.env.local.example
+!**/.env.*.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+*credentials*.json
+serviceAccount*.json
+google-services.json
+**/secrets/
+.claude/settings.local.json
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+.venv/
+venv/
+.uv/
+dist/
+build/
+*.egg-info/
+.eggs/
+*.egg
+.pytest_cache/
+.ruff_cache/
+.ty_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+
+# --- Node / JS ---
+node_modules/
+.next/
+out/
+.nuxt/
+.turbo/
+.pnpm-store/
+*.tsbuildinfo
+.vercel
+
+# --- Playwright / E2E ---
+playwright-report/
+test-results/
+blob-report/
+playwright/.cache/
+
+# --- ログ・一時ファイル ---
+*.log
+logs/
+tmp/
+temp/
+.cache/
+
+# --- ローカル DB ダンプ・SQLite（開発用） ---
+*.sqlite
+*.sqlite3
+*.db
+dump.rdb
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+*.Zone.Identifier
+
+# --- IDE（個人設定は除外。共有したい設定はリポジトリ方針に合わせる） ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

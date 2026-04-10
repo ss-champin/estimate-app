@@ -1,0 +1,15 @@
+# Next.js / フロント（ルート .gitignore と併用）
+# Clerk のローカル設定にシークレットが含まれる場合がある
+/.clerk/
+
+# 生成物（ルートでも除外済み）
+.next/
+out/
+node_modules/
+.vercel
+*.tsbuildinfo
+
+# 環境（実値）
+.env
+.env*.local
+!.env.local.example

@@ -1,0 +1,17 @@
+# バックエンド（ルート .gitignore と併用）
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.ty_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+
+# 環境（実値）
+.env
+.env.local
+.env.*.local
+!.env.example

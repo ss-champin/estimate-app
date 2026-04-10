@@ -1,0 +1,62 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,400;0,500;1,400&family=Outfit:wght@300;400;500;600;700;800;900&family=Shippori+Mincho:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+:root {
+  --ink:      #0C0F0A;
+  --ink2:     #161A14;
+  --teal:     #0D7C6E;
+  --teal-m:   #12A090;
+  --teal-l:   #1DC5B0;
+  --teal-bg:  #EDFAF7;
+  --cream:    #F7F6F2;
+  --cream2:   #EFEDE8;
+  --cream3:   #E5E2DA;
+  --border:   #E0DDD5;
+  --border2:  #C8C4BA;
+  --muted:    #6B6858;
+  --muted2:   #9E9B8E;
+  --green-bg: #ECFAF3;
+  --green:    #1A6B45;
+  --amber-bg: #FEF6E8;
+  --amber:    #925E0A;
+  --red-bg:   #FEF0F0;
+  --red:      #B52B2B;
+  --font:     'Outfit', sans-serif;
+  --font-display: 'Shippori Mincho', 'Hiragino Mincho ProN', 'Yu Mincho', serif;
+  --mono:     'DM Mono', monospace;
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+html { scroll-behavior: smooth; }
+body {
+  font-family: var(--font);
+  background: linear-gradient(180deg, #FAF9F6 0%, var(--cream) 45%, #F2EFE8 100%);
+  background-attachment: fixed;
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.afu  { animation: fadeUp .45s ease both; }
+.afu2 { animation: fadeUp .45s ease .1s both; }
+.afu3 { animation: fadeUp .45s ease .2s both; }
+.afu4 { animation: fadeUp .45s ease .3s both; }
+
+@keyframes dot-pulse {
+  0%,60%,100% { opacity:.2; transform:scale(.8); }
+  30%          { opacity:1;  transform:scale(1); }
+}
+.dot-1 { animation: dot-pulse 1.4s infinite; }
+.dot-2 { animation: dot-pulse 1.4s .2s infinite; }
+.dot-3 { animation: dot-pulse 1.4s .4s infinite; }
+
+.hero-grid-bg {
+  background-image: linear-gradient(rgba(255,255,255,1) 1px,transparent 1px), linear-gradient(90deg,rgba(255,255,255,1) 1px,transparent 1px);
+  background-size: 44px 44px;
+}

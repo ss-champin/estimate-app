@@ -1,0 +1,305 @@
+# =============================================================
+# mise.toml - EstiMate タスクランナー
+# 使い方: mise run <task> / mise tasks で一覧表示
+# =============================================================
+
+[tools]
+python = "3.12"
+node   = "20"
+uv     = "latest"
+pnpm   = "latest"
+ruff   = "latest"
+
+[settings]
+experimental = true
+
+[env]
+BACKEND_DIR  = "{{cwd}}/backend"
+FRONTEND_DIR = "{{cwd}}/frontend"
+E2E_DIR      = "{{cwd}}/e2e"
+APP_ENV      = "local"
+
+# ── SETUP ───────────────────────────────────────────────────
+[tasks.setup]
+description = "🏗  全環境を一括セットアップ"
+depends     = ["setup:backend", "setup:frontend", "setup:e2e"]
+run         = "echo '✅ セットアップ完了'"
+
+[tasks."setup:backend"]
+description = "🐍 バックエンド依存関係インストール + .env.local作成"
+dir         = "{{env.BACKEND_DIR}}"
+run         = """
+uv sync
+if [ ! -f .env.local ]; then cp .env.example .env.local; echo "📄 backend/.env.local を作成しました → APIキーを設定してください"; fi
+echo "✅ Backend完了"
+"""
+
+[tasks."setup:frontend"]
+description = "⚛️  フロントエンド依存関係インストール + .env.local作成"
+dir         = "{{env.FRONTEND_DIR}}"
+run         = """
+pnpm install
+if [ ! -f .env.local ]; then cp .env.local.example .env.local; echo "📄 frontend/.env.local を作成しました → Clerkキーを設定してください"; fi
+echo "✅ Frontend完了"
+"""
+
+[tasks."setup:e2e"]
+description = "🎭 Playwright E2Eセットアップ"
+dir         = "{{env.E2E_DIR}}"
+run         = """
+pnpm install
+pnpm exec playwright install --with-deps chromium
+echo "✅ E2E完了"
+"""
+
+# ── CLEAN ───────────────────────────────────────────────────
+[tasks.clean]
+description = "🧹 全環境をクリーン"
+depends     = ["clean:backend", "clean:frontend", "clean:e2e"]
+run         = "echo '✅ クリーン完了'"
+
+[tasks."clean:backend"]
+description = "🧹 バックエンドキャッシュ削除"
+dir         = "{{env.BACKEND_DIR}}"
+run         = """
+rm -rf .venv
+find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+find . -type d -name ".pytest_cache" -exec rm -rf {} + 2>/dev/null || true
+find . -type d -name ".ruff_cache" -exec rm -rf {} + 2>/dev/null || true
+find . -type d -name ".ty_cache" -exec rm -rf {} + 2>/dev/null || true
+find . -name "*.pyc" -delete 2>/dev/null || true
+rm -rf htmlcov dist build
+echo "✅ Backend クリーン完了"
+"""
+
+[tasks."clean:frontend"]
+description = "🧹 フロントエンドキャッシュ削除"
+dir         = "{{env.FRONTEND_DIR}}"
+run         = "rm -rf .next out node_modules && echo '✅ Frontend クリーン完了'"
+
+[tasks."clean:e2e"]
+description = "🧹 E2Eキャッシュ削除"
+dir         = "{{env.E2E_DIR}}"
+run         = "rm -rf node_modules test-results playwright-report && echo '✅ E2E クリーン完了'"
+
+[tasks.reset]
+description = "♻️  クリーン → 再セットアップ"
+depends     = ["clean", "setup"]
+
+# ── DEV ─────────────────────────────────────────────────────
+[tasks.dev]
+description = "🚀 フロント & バックエンドを同時起動"
+run         = "mise run db:up && (mise run dev:backend & mise run dev:frontend & wait)"
+
+[tasks."dev:backend"]
+description = "🐍 FastAPI 開発サーバー（ホットリロード）"
+dir         = "{{env.BACKEND_DIR}}"
+run         = "APP_ENV=local uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
+
+[tasks."dev:frontend"]
+description = "⚛️  Next.js 開発サーバー（Turbopack）"
+dir         = "{{env.FRONTEND_DIR}}"
+run         = "pnpm dev"
+
+# ── DB ──────────────────────────────────────────────────────
+[tasks."db:up"]
+description = "🐘 ローカルPostgreSQL起動（Docker）"
+run         = """
+docker compose up -d postgres
+until docker compose exec postgres pg_isready -U estimate -d estimate_dev -q 2>/dev/null; do sleep 1; done
+echo "✅ PostgreSQL起動完了 → localhost:5432"
+"""
+
+[tasks."db:down"]
+description = "🐘 ローカルPostgreSQL停止"
+run         = "docker compose down && echo '✅ 停止完了'"
+
+[tasks."db:reset"]
+description = "♻️  ローカルDBを完全リセット"
+run         = "docker compose down -v && mise run db:up"
+
+[tasks."db:psql"]
+description = "🔌 ローカルDBにpsqlで接続"
+run         = "docker compose exec postgres psql -U estimate -d estimate_dev"
+
+# ── MIGRATE ─────────────────────────────────────────────────
+[tasks.migrate]
+description = "⬆️  マイグレーション（最新まで） ※ APP_ENV=local|production"
+dir         = "{{env.BACKEND_DIR}}"
+run         = """
+TARGET_ENV="${APP_ENV:-local}"
+echo "🗄  マイグレーション（APP_ENV=$TARGET_ENV）..."
+APP_ENV=$TARGET_ENV uv run alembic upgrade head
+echo "✅ 完了"
+"""
+
+[tasks."migrate:up"]
+description = "⬆️  1ステップ進める"
+dir         = "{{env.BACKEND_DIR}}"
+run         = "APP_ENV=${APP_ENV:-local} uv run alembic upgrade +1"
+
+[tasks."migrate:down"]
+description = "⬇️  1ステップ戻す"
+dir         = "{{env.BACKEND_DIR}}"
+run         = "APP_ENV=${APP_ENV:-local} uv run alembic downgrade -1"
+
+[tasks."migrate:reset"]
+description = "♻️  全部戻して再実行（ローカルのみ推奨）"
+dir         = "{{env.BACKEND_DIR}}"
+run         = "APP_ENV=local uv run alembic downgrade base && APP_ENV=local uv run alembic upgrade head"
+
+[tasks."migrate:create"]
+description = "📝 新規マイグレーション作成（MESSAGE=名前 を指定）"
+dir         = "{{env.BACKEND_DIR}}"
+run         = """
+if [ -z "$MESSAGE" ]; then echo "❌ MESSAGE を指定してください (例: MESSAGE=add_column mise run migrate:create)"; exit 1; fi
+uv run alembic revision --autogenerate -m "$MESSAGE"
+"""
+
+[tasks."migrate:status"]
+description = "📊 マイグレーション状態確認"
+dir         = "{{env.BACKEND_DIR}}"
+run         = "APP_ENV=${APP_ENV:-local} uv run alembic current && uv run alembic history --verbose"
+
+# ── LINT ────────────────────────────────────────────────────
+[tasks.lint]
+description = "🔍 全環境のLintチェック"
+depends     = ["lint:backend", "lint:frontend"]
+
+[tasks."lint:backend"]
+description = "🔍 Ruff Lint（Python）"
+dir         = "{{env.BACKEND_DIR}}"
+run         = "uv run ruff check app/ tests/"
+
+[tasks."lint:backend:fix"]
+description = "🔧 Ruff Lint 自動修正"
+dir         = "{{env.BACKEND_DIR}}"
+run         = "uv run ruff check --fix app/ tests/"
+
+[tasks."lint:frontend"]
+description = "🔍 Biome Lint（TypeScript）"
+dir         = "{{env.FRONTEND_DIR}}"
+run         = "pnpm lint"
+
+[tasks."lint:frontend:fix"]
+description = "🔧 Biome Lint 自動修正"
+dir         = "{{env.FRONTEND_DIR}}"
+run         = "pnpm lint:fix"
+
+# ── FORMAT ──────────────────────────────────────────────────
+[tasks.format]
+description = "✨ 全環境フォーマット"
+depends     = ["format:backend", "format:frontend"]
+
+[tasks."format:backend"]
+description = "✨ Ruff Format（Python）"
+dir         = "{{env.BACKEND_DIR}}"
+run         = "uv run ruff format app/ tests/"
+
+[tasks."format:frontend"]
+description = "✨ Biome Format（TypeScript）"
+dir         = "{{env.FRONTEND_DIR}}"
+run         = "pnpm format"
+
+# ── TYPECHECK ────────────────────────────────────────────────
+[tasks.typecheck]
+description = "🔎 全環境の型チェック"
+depends     = ["typecheck:backend", "typecheck:frontend"]
+
+[tasks."typecheck:backend"]
+description = "🔎 ty 型チェック（Python）"
+dir         = "{{env.BACKEND_DIR}}"
+run         = "uv run ty check app/"
+
+[tasks."typecheck:frontend"]
+description = "🔎 TypeScript 型チェック"
+dir         = "{{env.FRONTEND_DIR}}"
+run         = "pnpm typecheck"
+
+# ── CHECK ────────────────────────────────────────────────────
+[tasks.check]
+description = "✅ Lint + Format + 型チェックを一括実行"
+depends     = ["lint", "format", "typecheck"]
+run         = "echo '✅ 全チェック完了'"
+
+[tasks."check:fix"]
+description = "🔧 Lint + Format を自動修正"
+depends     = ["lint:backend:fix", "lint:frontend:fix", "format"]
+run         = "echo '✅ 自動修正完了'"
+
+# ── TEST ────────────────────────────────────────────────────
+[tasks.test]
+description = "🧪 全テスト実行"
+depends     = ["test:backend", "test:frontend", "test:e2e"]
+run         = "echo '🎉 全テスト完了'"
+
+[tasks."test:backend"]
+description = "🧪 pytest（backend）"
+dir         = "{{env.BACKEND_DIR}}"
+run         = "APP_ENV=local uv run pytest tests/ -v --tb=short"
+
+[tasks."test:backend:cov"]
+description = "📊 pytestカバレッジ付き"
+dir         = "{{env.BACKEND_DIR}}"
+run         = "APP_ENV=local uv run pytest tests/ -v --cov=app --cov-report=html --cov-report=term-missing"
+
+[tasks."test:frontend"]
+description = "🧪 vitest（frontend）"
+dir         = "{{env.FRONTEND_DIR}}"
+run         = "pnpm test:run"
+
+[tasks."test:frontend:watch"]
+description = "👀 vitest ウォッチモード"
+dir         = "{{env.FRONTEND_DIR}}"
+run         = "pnpm test"
+
+[tasks."test:e2e"]
+description = "🎭 Playwright E2Eテスト"
+dir         = "{{env.E2E_DIR}}"
+run         = "pnpm exec playwright test"
+
+[tasks."test:e2e:ui"]
+description = "🖥  Playwright UIモード"
+dir         = "{{env.E2E_DIR}}"
+run         = "pnpm exec playwright test --ui"
+
+# ── LOGS ────────────────────────────────────────────────────
+[tasks."logs:backend"]
+description = "📋 Fly.io バックエンドログ"
+run         = "fly logs --app estimate-backend"
+
+[tasks."logs:backend:error"]
+description = "🚨 エラーログのみ"
+run         = "fly logs --app estimate-backend | grep -iE 'error|exception|traceback'"
+
+[tasks."logs:frontend"]
+description = "📋 Vercel フロントエンドログ"
+run         = "vercel logs estimate-frontend"
+
+# ── DEPLOY ──────────────────────────────────────────────────
+[tasks."deploy:backend"]
+description = "🚀 Fly.ioにバックエンドをデプロイ"
+dir         = "{{env.BACKEND_DIR}}"
+run         = """
+echo "🗄  本番マイグレーション実行..."
+APP_ENV=production uv run alembic upgrade head
+echo "🚀 Fly.ioにデプロイ中..."
+fly deploy
+echo "✅ Backend デプロイ完了"
+"""
+
+[tasks."deploy:frontend"]
+description = "🚀 Vercelにフロントエンドをデプロイ"
+dir         = "{{env.FRONTEND_DIR}}"
+run         = "vercel --prod && echo '✅ Frontend デプロイ完了'"
+
+[tasks.deploy]
+description = "🚀 全環境を本番にデプロイ"
+depends     = ["deploy:backend", "deploy:frontend"]
+run         = "echo '🎉 全デプロイ完了'"
+
+# ── CI ──────────────────────────────────────────────────────
+[tasks.ci]
+description = "🤖 CIパイプライン（check + test:backend + test:frontend）"
+depends     = ["check", "test:backend", "test:frontend"]
+run         = "echo '✅ CI完了'"
