@@ -66,7 +66,7 @@ cp frontend/.env.local.example frontend/.env.local
 
 **取得が必要なキー：**
 
-- **Clerk**: [https://dashboard.clerk.com](https://dashboard.clerk.com) → API Keys
+- **Clerk**: [Dashboard](https://dashboard.clerk.com) → **Publishable key**（フロント）・**Secret key**（バックエンド任意）・**JWT public key**（API でトークン検証に必須）・必要なら **JWT の `iss`**（`CLERK_JWT_ISSUER`）・**Webhooks** で `https://<APIホスト>/api/clerk/webhook` と **Signing secret**（`CLERK_WEBHOOK_SECRET`、本番は必須）
 - **Gemini**: [https://aistudio.google.com](https://aistudio.google.com) → API Keys（開発用・無料）
 - **Anthropic**: [https://console.anthropic.com](https://console.anthropic.com) → API Keys（本番用）
 - **Stripe**: [https://dashboard.stripe.com](https://dashboard.stripe.com) → Developers → API Keys

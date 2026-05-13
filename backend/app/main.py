@@ -1,5 +1,4 @@
 import logging
-import os
 import sys
 import traceback
 from contextlib import asynccontextmanager
@@ -12,9 +11,11 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from starlette.responses import Response
+
+from app.api.deps import _local_auth_bypass_enabled
+from app.api.routes import estimate, health, stripe_webhook, users
 from app.core.config import apply_ai_keys_to_environ, settings
 from app.core.database import ensure_local_dev_schema
-from app.api.routes import health, estimate, users, stripe_webhook
 
 limiter = Limiter(key_func=get_remote_address)
 logger = logging.getLogger("app.main")
@@ -63,6 +64,29 @@ def _cors_headers_for_request(request: Request) -> dict[str, str]:
         }
     return {}
 
+
+def _validate_clerk_webhook_when_db() -> None:
+    """
+    DB 利用かつ Clerk で API 認証するときは Webhook と CLERK_WEBHOOK_SECRET 必須。
+    （Clerk で user.created / user.deleted を /api/clerk/webhook に送る前提）
+    ローカル「Clerk なし・Bearer local-dev」のみ省略可。
+    """
+    if not settings.database_enabled:
+        return
+    if _local_auth_bypass_enabled():
+        logger.info(
+            "ローカル開発（Clerk JWT 無効）: CLERK_WEBHOOK_SECRET なしで起動します"
+        )
+        return
+    if not (settings.CLERK_WEBHOOK_SECRET or "").strip():
+        raise RuntimeError(
+            "PostgreSQL 利用かつ Clerk 認証が有効なため CLERK_WEBHOOK_SECRET は必須です。"
+            "Clerk Dashboard → Webhooks に https://<APIベースURL>/api/clerk/webhook を登録し、"
+            "user.created と user.deleted を購読し、"
+            "Signing secret（whsec_…）を .env に設定してください。"
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     apply_ai_keys_to_environ()
@@ -76,6 +100,7 @@ async def lifespan(app: FastAPI):
         raise RuntimeError(
             "本番では DATABASE_URL が必須です。USE_DATABASE を確認するか PostgreSQL の URL を設定してください。"
         )
+    _validate_clerk_webhook_when_db()
     await ensure_local_dev_schema()
     yield
 

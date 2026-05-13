@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     USE_DATABASE:         str       = "auto"
     CLERK_SECRET_KEY:     str       = ""
     CLERK_JWT_PUBLIC_KEY: str       = ""
+    # 推奨: Clerk のセッション JWT の iss（例: https://xxx.clerk.accounts.dev）
+    CLERK_JWT_ISSUER:     str       = ""
+    # Clerk Dashboard → Webhooks → Signing Secret（Svix）
+    CLERK_WEBHOOK_SECRET: str       = ""
     STRIPE_SECRET_KEY:    str       = ""
     STRIPE_WEBHOOK_SECRET:str       = ""
     STRIPE_PRICE_ID:      str       = ""

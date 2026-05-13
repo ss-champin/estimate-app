@@ -19,6 +19,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "python-jose[cryptography]>=3.3.0",
     "stripe>=11.0.0",
+    "svix>=1.93.0",
 ]
 
 [dependency-groups]
