@@ -37,7 +37,7 @@ curl https://mise.run | sh　　　→　　brew install mise
 echo 'eval "$(~/.local/bin/mise activate zsh)"' >> ~/.zshrc
 source ~/.zshrc
 
-# Docker Desktop が必要（ローカルDB用）
+# Docker Desktop はローカル PostgreSQL を使う場合のみ（`mise run dev` 単体では不要）
 ```
 
 ### 2. 全環境セットアップ
@@ -71,21 +71,25 @@ cp frontend/.env.local.example frontend/.env.local
 - **Anthropic**: [https://console.anthropic.com](https://console.anthropic.com) → API Keys（本番用）
 - **Stripe**: [https://dashboard.stripe.com](https://dashboard.stripe.com) → Developers → API Keys
 
-### 4. ローカルDB起動 & マイグレーション
+### 4. ローカルDB（任意）
+
+`DATABASE_URL` を空のままなら DB なしで開発できます。
+
+PostgreSQL を使う場合は Docker で起動し、マイグレーションを実行します。
 
 ```bash
-# Docker でPostgreSQL起動
 mise run db:up
-
-# マイグレーション実行
 mise run migrate
 ```
 
 ### 5. 開発サーバー起動
 
 ```bash
-# フロントエンド + バックエンドを同時起動
+# フロントエンド + バックエンド（Docker / DB 不要）
 mise run dev
+
+# DB コンテナも一緒に立ち上げてから開発する場合
+mise run dev:with-db
 
 # → Frontend: http://localhost:3000
 # → Backend:  http://localhost:8000/docs（Swagger UI）
@@ -96,7 +100,8 @@ mise run dev
 ```bash
 mise tasks                           # 全タスク確認
 mise run setup                       # 全環境セットアップ
-mise run dev                         # 開発サーバー起動
+mise run dev                         # 開発サーバー起動（DB 不要）
+mise run dev:with-db                  # Docker PostgreSQL 起動 → 開発サーバー
 mise run db:up                       # ローカルDB起動
 mise run db:down                     # ローカルDB停止
 mise run migrate                     # マイグレーション（ローカル）

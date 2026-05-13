@@ -1,15 +1,24 @@
+import asyncio
 import logging
+from collections.abc import AsyncGenerator
 from functools import lru_cache
-from typing import AsyncGenerator
+
 from fastapi import HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 
 @lru_cache
-def _engine():
+def _engine() -> AsyncEngine:
     if not settings.database_enabled:
         raise RuntimeError("database is disabled (USE_DATABASE / DATABASE_URL)")
     url = (settings.DATABASE_URL or "").strip()
@@ -25,7 +34,7 @@ def _engine():
 
 
 @lru_cache
-def _session_factory():
+def _session_factory() -> async_sessionmaker[AsyncSession]:
     return async_sessionmaker(_engine(), expire_on_commit=False)
 
 
@@ -43,10 +52,32 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     if not settings.database_enabled:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="データベースが無効です。DATABASE_URL を設定するか USE_DATABASE を見直してください。",
+            detail=(
+                "データベースが無効です。"
+                "DATABASE_URL を設定するか USE_DATABASE を見直してください。"
+            ),
         )
     async with _session_factory()() as session:
         yield session
+
+
+async def database_reachable(ping_timeout_sec: float = 2.0) -> bool:
+    """設定上 DB 有効のとき、SELECT 1 で到達性だけ確認する。"""
+    if not settings.database_enabled:
+        return False
+    try:
+        engine = _engine()
+
+        async def _ping() -> None:
+            async with engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+
+        await asyncio.wait_for(_ping(), timeout=ping_timeout_sec)
+        return True
+    except Exception as e:
+        # /health の定期確認で接続拒否が起きうるためスタックトレースは出さない
+        logger.warning("DB ヘルスチェック: 接続に失敗しました（%s）", e)
+        return False
 
 
 async def ensure_local_dev_schema() -> None:

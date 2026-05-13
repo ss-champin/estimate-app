@@ -88,7 +88,11 @@ depends     = ["clean", "setup"]
 
 # ── DEV ─────────────────────────────────────────────────────
 [tasks.dev]
-description = "🚀 フロント & バックエンドを同時起動"
+description = "🚀 フロント & バックエンドを同時起動（DB は不要。Docker なしで可）"
+run         = "(mise run dev:backend & mise run dev:frontend & wait)"
+
+[tasks."dev:with-db"]
+description = "🚀 docker PostgreSQL 起動後にフロント & バックエンド"
 run         = "mise run db:up && (mise run dev:backend & mise run dev:frontend & wait)"
 
 [tasks."dev:backend"]
