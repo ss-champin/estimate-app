@@ -5,6 +5,7 @@ from functools import lru_cache
 
 from fastapi import HTTPException, status
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -15,6 +16,36 @@ from sqlalchemy.ext.asyncio import (
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+_DB_UNAVAILABLE_DETAIL = (
+    "データベースに接続できません。"
+    "PostgreSQL を起動してください（例: Docker Compose の DB）、"
+    "または DATABASE_URL が正しいか確認してください。"
+)
+
+
+def _is_db_connection_error(exc: BaseException) -> bool:
+    """起動していない DB・接続拒否など、一時的な接続失敗を判定する。"""
+    if isinstance(exc, OperationalError):
+        return True
+    if isinstance(exc, OSError):
+        # ConnectionRefusedError, ネットワーク一時エラー等
+        return True
+    orig = getattr(exc, "orig", None)
+    if isinstance(orig, OSError):
+        return True
+    cause = exc.__cause__
+    if isinstance(cause, OSError):
+        return True
+    return False
+
+
+def _raise_db_unavailable(exc: BaseException) -> None:
+    logger.warning("DB 接続エラー: %s", exc)
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail=_DB_UNAVAILABLE_DETAIL,
+    ) from exc
 
 
 @lru_cache
@@ -43,8 +74,13 @@ async def get_db_optional() -> AsyncGenerator[AsyncSession | None, None]:
     if not settings.database_enabled:
         yield None
         return
-    async with _session_factory()() as session:
-        yield session
+    try:
+        async with _session_factory()() as session:
+            yield session
+    except Exception as e:
+        if _is_db_connection_error(e):
+            _raise_db_unavailable(e)
+        raise
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -57,8 +93,13 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
                 "DATABASE_URL を設定するか USE_DATABASE を見直してください。"
             ),
         )
-    async with _session_factory()() as session:
-        yield session
+    try:
+        async with _session_factory()() as session:
+            yield session
+    except Exception as e:
+        if _is_db_connection_error(e):
+            _raise_db_unavailable(e)
+        raise
 
 
 async def database_reachable(ping_timeout_sec: float = 2.0) -> bool:

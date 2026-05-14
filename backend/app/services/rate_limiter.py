@@ -1,11 +1,14 @@
 from __future__ import annotations
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
-from app.models.db import ApiUsage, PlanEnum, User
+from app.models.db import ApiUsage, BillingPlan, PlanEnum, User
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -28,6 +31,26 @@ def plan_str(user: User) -> str:
     return str(p)
 
 
+async def _plan_limits_for_user(user: User, db: AsyncSession | None) -> PlanLimits:
+    key = plan_str(user)
+    fallback = LIMITS.get(key) or LIMITS[PlanEnum.free.value]
+    if db is None:
+        return fallback
+    try:
+        res = await db.execute(
+            select(BillingPlan).where(BillingPlan.slug == key, BillingPlan.is_active.is_(True)),
+        )
+        row = res.scalar_one_or_none()
+        if row is not None:
+            return PlanLimits(
+                daily_limit=row.daily_request_limit,
+                monthly_limit=row.monthly_request_limit,
+            )
+    except Exception:
+        logger.warning("billing_plans から上限を読めませんでした（slug=%s）", key, exc_info=True)
+    return fallback
+
+
 async def check_and_increment(user: User, db: AsyncSession | None) -> None:
     s = get_settings()
     if db is None:
@@ -39,7 +62,7 @@ async def check_and_increment(user: User, db: AsyncSession | None) -> None:
         # ローカルかつ DB なし: 永続化しない（開発用）
         return
 
-    limits    = LIMITS[plan_str(user)]
+    limits = await _plan_limits_for_user(user, db)
     today_jst = _today_jst()
     month_start = today_jst.replace(day=1)
 
@@ -57,7 +80,12 @@ async def check_and_increment(user: User, db: AsyncSession | None) -> None:
         if monthly_count >= limits.monthly_limit:
             raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail={
                 "error": "monthly_limit_exceeded",
-                "message": f"今月の生成回数が上限（{limits.monthly_limit}回/月）に達しました。" + ("有料プランにアップグレードすると30回/月ご利用いただけます。" if plan_str(user) == PlanEnum.free.value else "来月1日にリセットされます。"),
+                "message": f"今月の生成回数が上限（{limits.monthly_limit}回/月）に達しました。"
+                + (
+                    "有料プランにアップグレードすると上限が拡大します。"
+                    if plan_str(user) == PlanEnum.free.value
+                    else "来月1日にリセットされます。"
+                ),
                 "limit": limits.monthly_limit, "used": monthly_count, "resets": "next_month",
             })
 
@@ -72,7 +100,7 @@ class UsageStatus:
 
 
 async def get_usage_status(user: User, db: AsyncSession | None) -> UsageStatus:
-    limits = LIMITS[plan_str(user)]
+    limits = await _plan_limits_for_user(user, db)
     if db is None:
         return UsageStatus(
             plan=plan_str(user),

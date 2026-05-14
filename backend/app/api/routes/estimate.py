@@ -1,16 +1,19 @@
 import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.api.deps import get_current_user, get_current_user_with_limit
+from app.core.config import settings
 from app.core.database import get_db_optional
 from app.models.db import User
 from app.models.estimate import EstimateAPIResponse, EstimateRequest
+from app.services.billing_plans import resolve_estimate_plan_key
 from app.services.estimate_service import generate_estimate
-from app.core.config import settings
-from app.services.rate_limiter import UsageStatus, get_usage_status, plan_str
+from app.services.rate_limiter import get_usage_status, plan_str
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["estimate"])
@@ -23,9 +26,13 @@ _GENERATE_RATE = "2000/minute" if settings.is_local else "10/minute"
 @router.post("/estimate/generate", response_model=EstimateAPIResponse)
 @limiter.limit(_GENERATE_RATE)
 async def generate_estimate_endpoint(
-    request: Request, body: EstimateRequest, current_user: User = Depends(get_current_user_with_limit)
+    request: Request,
+    body: EstimateRequest,
+    current_user: User = Depends(get_current_user_with_limit),  # noqa: B008
+    db: AsyncSession | None = Depends(get_db_optional),  # noqa: B008
 ) -> EstimateAPIResponse:
     plan = plan_str(current_user)
+    estimate_key = await resolve_estimate_plan_key(current_user, db)
     jt = (body.job_title or "").replace("\n", " ").strip()
     jt_prev = jt or "（未指定）"
     logger.info(
@@ -33,7 +40,7 @@ async def generate_estimate_endpoint(
             [
                 "┌─ POST /api/estimate/generate ──── ⓪ 受信リクエスト ───────────────",
                 f"│  [ユーザー]     clerk_id={current_user.clerk_id}  db_id={current_user.id}",
-                f"│  [プラン]       {plan}",
+                f"│  [プラン]       {plan}（見積キー: {estimate_key}）",
                 f"│  [複雑度]       {body.complexity.value}",
                 f"│  [案件タイトル] {jt_prev}",
                 f"│  [本文文字数]   {len(body.job_description or '')}文字",
@@ -42,7 +49,7 @@ async def generate_estimate_endpoint(
         )
     )
     try:
-        return await generate_estimate(body, user_plan=plan)
+        return await generate_estimate(body, user_plan=estimate_key)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     except Exception as e:
@@ -64,8 +71,8 @@ class UsageResponse(BaseModel):
 
 @router.get("/estimate/usage", response_model=UsageResponse)
 async def get_usage_endpoint(
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession | None = Depends(get_db_optional),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: AsyncSession | None = Depends(get_db_optional),  # noqa: B008
 ) -> UsageResponse:
     s = await get_usage_status(current_user, db)
     return UsageResponse(

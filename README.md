@@ -14,7 +14,7 @@
 | DB       | Neon (PostgreSQL)       | 20プロジェクトまで無料  |
 | AI（開発）   | Gemini 2.5 Flash-Lite   | 無料枠・無料ユーザーも使用 |
 | AI（本番）   | Claude Haiku 4.5        | 有料ユーザーのみ      |
-| 決済       | Stripe                  |               |
+| 決済       | Stripe                  | [サンドボックス→本番の手順](docs/stripe-setup.md) |
 | バージョン管理  | mise                    |               |
 
 

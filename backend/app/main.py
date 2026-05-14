@@ -13,9 +13,10 @@ from slowapi.util import get_remote_address
 from starlette.responses import Response
 
 from app.api.deps import _local_auth_bypass_enabled
-from app.api.routes import estimate, health, stripe_webhook, users
+from app.api.routes import estimate, health, plans, stripe_checkout, stripe_webhook, users
 from app.core.config import apply_ai_keys_to_environ, settings
 from app.core.database import ensure_local_dev_schema
+from app.services.billing_plans import ensure_default_billing_plans
 
 limiter = Limiter(key_func=get_remote_address)
 logger = logging.getLogger("app.main")
@@ -102,6 +103,7 @@ async def lifespan(app: FastAPI):
         )
     _validate_clerk_webhook_when_db()
     await ensure_local_dev_schema()
+    await ensure_default_billing_plans()
     yield
 
 app = FastAPI(
@@ -140,6 +142,8 @@ async def unhandled_exception_cors(request: Request, call_next):
             headers=_cors_headers_for_request(request),
         )
 app.include_router(health.router)
-app.include_router(estimate.router,       prefix="/api")
+app.include_router(plans.router, prefix="/api")
+app.include_router(estimate.router,        prefix="/api")
 app.include_router(users.router,          prefix="/api")
-app.include_router(stripe_webhook.router, prefix="/api")
+app.include_router(stripe_checkout.router, prefix="/api")
+app.include_router(stripe_webhook.router,  prefix="/api")

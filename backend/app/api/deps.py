@@ -149,7 +149,12 @@ async def get_current_user(
             return _synthetic_local_dev_user()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid local dev token",
+            detail=(
+                "API はローカル開発バイパス中です（CLERK_JWT_PUBLIC_KEY が未設定またはプレースホルダーのため）。"
+                "フロントの Clerk トークンは使えません。いずれかを行ってください: "
+                "① backend/.env.local に Clerk の JWT 公開鍵（実鍵）と必要なら CLERK_JWT_ISSUER を設定する；"
+                "② フロントと同様に Authorization: Bearer local-dev で呼び出す。"
+            ),
         )
 
     if not authorization or not authorization.startswith("Bearer "):

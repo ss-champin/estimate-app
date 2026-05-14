@@ -1,5 +1,6 @@
 import Link from "next/link"
 import { AppNav } from "@/components/layout/AppNav"
+import { ProCheckoutButton } from "@/components/stripe/ProCheckoutButton"
 import { Button } from "@/components/ui"
 import { cn } from "@/lib/utils"
 
@@ -82,11 +83,17 @@ export default function PricingPage() {
                   </li>
                 ))}
               </ul>
-              <Link href={plan.ctaHref}>
-                <Button variant={plan.featured ? "teal" : "outline"} full>
+              {plan.key === "pro" ? (
+                <ProCheckoutButton full variant="teal">
                   {plan.cta}
-                </Button>
-              </Link>
+                </ProCheckoutButton>
+              ) : (
+                <Link href={plan.ctaHref ?? "/auth"}>
+                  <Button variant={plan.featured ? "teal" : "outline"} full>
+                    {plan.cta}
+                  </Button>
+                </Link>
+              )}
               <p className="text-center text-[12px] text-[var(--muted2)] mt-2.5">{plan.aiNote}</p>
             </div>
           ))}

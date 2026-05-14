@@ -1,8 +1,12 @@
 import os
 from functools import lru_cache
+from pathlib import Path
 
 from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# uvicorn の cwd に依存しない（リポジトリルートから起動しても backend/.env.local を読む）
+_BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 class Settings(BaseSettings):
@@ -52,7 +56,11 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     env = os.getenv("APP_ENV", "local")
-    load_dotenv(f".env.{env}", encoding="utf-8")
+    for name in (f".env.{env}", ".env"):
+        path = _BACKEND_ROOT / name
+        if path.is_file():
+            load_dotenv(path, encoding="utf-8")
+            break
     return Settings()
 
 

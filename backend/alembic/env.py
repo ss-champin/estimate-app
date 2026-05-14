@@ -22,7 +22,7 @@ db_url = db_url.replace("postgresql+asyncpg://", "postgresql://")
 config.set_main_option("sqlalchemy.url", db_url)
 
 from app.models.base import Base  # noqa: E402
-from app.models.db import User, Subscription, ApiUsage  # noqa: E402, F401
+from app.models.db import ApiUsage, BillingPlan, Subscription, User  # noqa: E402, F401
 target_metadata = Base.metadata
 
 

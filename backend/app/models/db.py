@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 from enum import Enum as PyEnum
-from sqlalchemy import Date, DateTime, Enum, ForeignKey, Integer, String, UniqueConstraint, func, text
+from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Integer, String, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base
@@ -16,6 +16,25 @@ class SubscriptionStatusEnum(str, PyEnum):
     active   = "active"
     canceled = "canceled"
     past_due = "past_due"
+
+
+class BillingPlan(Base):
+    """料金プラン（利用上限・Stripe Price ID・見積もりAI用プランキー）。課金・レート制限の参照元。"""
+
+    __tablename__ = "billing_plans"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    slug: Mapped[str] = mapped_column(String(32), nullable=False, unique=True)
+    display_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    stripe_price_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    daily_request_limit: Mapped[int | None] = mapped_column(Integer(), nullable=True)
+    monthly_request_limit: Mapped[int] = mapped_column(Integer(), nullable=False)
+    estimate_plan_key: Mapped[str] = mapped_column(String(32), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean(), nullable=False, server_default=text("true"))
+    sort_order: Mapped[int] = mapped_column(Integer(), nullable=False, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class User(Base):

@@ -18,3 +18,21 @@ export const getUsageStatus = (token: string) =>
 
 export const getEstimateHistory = (token: string) =>
   req<EstimateHistory[]>("/api/estimates", {}, token)
+
+export type CheckoutSessionResponse = { url: string }
+
+export function createCheckoutSession(token: string) {
+  return req<CheckoutSessionResponse>(
+    "/api/stripe/checkout-session",
+    { method: "POST", body: "{}" },
+    token,
+  )
+}
+
+export function createPortalSession(token: string) {
+  return req<CheckoutSessionResponse>(
+    "/api/stripe/portal-session",
+    { method: "POST", body: "{}" },
+    token,
+  )
+}
