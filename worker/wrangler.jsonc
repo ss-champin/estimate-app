@@ -5,6 +5,16 @@
   "compatibility_date": "2026-07-01",
   "compatibility_flags": ["python_workers"],
 
+  "packages": [
+    "fastapi",
+    "httpx",
+    "pydantic",
+    "python-multipart",
+    "python-jose",
+    "cryptography",
+    "stripe"
+  ],
+
   "d1_databases": [
     {
       "binding": "DB",
