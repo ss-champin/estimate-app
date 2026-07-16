@@ -6,6 +6,24 @@ import sys
 import traceback
 import types as _types
 
+# --- Cloudflare Workers: inject vars/secrets into os.environ BEFORE settings load ---
+# workers.env is available at module level in the CF runtime.
+# In non-CF environments this import fails and we fall through silently.
+try:
+    from workers import env as _cf_env  # type: ignore[import-untyped]
+
+    _CF_ENV_KEYS = (
+        "APP_ENV", "CLERK_SECRET_KEY", "CLERK_JWT_PUBLIC_KEY",
+        "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "STRIPE_SECRET_KEY",
+        "STRIPE_WEBHOOK_SECRET", "STRIPE_PRICE_ID", "FRONTEND_URL", "ALLOWED_ORIGINS",
+    )
+    for _k in _CF_ENV_KEYS:
+        _v = getattr(_cf_env, _k, None)
+        if _v is not None:
+            _os.environ[_k] = str(_v)
+except Exception:  # noqa: BLE001
+    pass
+
 # In Cloudflare Workers, app/* is bundled directly at the module root (not inside an
 # 'app/' subdirectory). Inject a virtual 'app' package so absolute imports work.
 if "app" not in sys.modules:
@@ -93,8 +111,25 @@ try:
     import asgi as _asgi
     from workers import WorkerEntrypoint
 
+    _CF_ENV_KEYS = (
+        "APP_ENV", "CLERK_SECRET_KEY", "CLERK_JWT_PUBLIC_KEY",
+        "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "STRIPE_SECRET_KEY",
+        "STRIPE_WEBHOOK_SECRET", "STRIPE_PRICE_ID", "FRONTEND_URL", "ALLOWED_ORIGINS",
+    )
+    _cf_env_initialized = False
+
     class Default(WorkerEntrypoint):
         async def fetch(self, request):
+            global _cf_env_initialized
+            if not _cf_env_initialized:
+                import os as _os
+                from app.core.config import get_settings
+                for key in _CF_ENV_KEYS:
+                    val = getattr(self.env, key, None)
+                    if val is not None:
+                        _os.environ[key] = str(val)
+                get_settings.cache_clear()
+                _cf_env_initialized = True
             return await _asgi.fetch(app, request, self.env)
 
 except ImportError:

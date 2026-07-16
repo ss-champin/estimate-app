@@ -52,7 +52,7 @@ def _local_auth_bypass_enabled() -> bool:
     return not _has_usable_clerk_jwt_public_key()
 
 
-def get_d1(request: Request) -> object:
+async def get_d1(request: Request) -> object:
     """D1 バインディングを返す。CF Workers 環境以外では None。"""
     return getattr(request.state, "db", None)
 
