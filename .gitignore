@@ -76,6 +76,7 @@ frontend/.vercel/
 worker/.dev.vars
 worker/python_modules/
 worker/.venv-workers/
+frontend/.wrangler/
 
 # --- バックアップ・一時ファイル（シークレットが含まれる可能性） ---
 backend/env.local_bk.txt
