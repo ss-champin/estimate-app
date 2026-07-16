@@ -70,6 +70,16 @@ test-results/
 blob-report/
 playwright/.cache/
 
+# --- ビルド成果物（コミット不要） ---
+frontend/.open-next/
+frontend/.vercel/
+worker/.dev.vars
+
+# --- バックアップ・一時ファイル（シークレットが含まれる可能性） ---
+backend/env.local_bk.txt
+**/*.local_bk.*
+**/*_bk.*
+
 # --- ログ・一時ファイル ---
 *.log
 logs/
