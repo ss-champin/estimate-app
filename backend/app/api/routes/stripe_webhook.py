@@ -1,27 +1,27 @@
+from __future__ import annotations
+
 import logging
+
 import stripe
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from sqlalchemy import select, update
-from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.deps import get_d1
 from app.core.config import settings
-from app.core.database import get_db_optional
-from app.models.db import Subscription
 
 router = APIRouter(tags=["stripe"])
 logger = logging.getLogger(__name__)
+
 
 @router.post("/stripe/webhook")
 async def stripe_webhook(
     request: Request,
     stripe_signature: str | None = Header(default=None, alias="stripe-signature"),
-    db: AsyncSession | None = Depends(get_db_optional),
-):
+    db=Depends(get_d1),
+) -> dict:
     if db is None:
-        logger.warning("データベース無効のため Stripe Webhook をスキップします")
         return {"received": False, "skipped": True, "reason": "database_disabled"}
 
     if not (settings.STRIPE_WEBHOOK_SECRET or "").strip():
-        logger.warning("STRIPE_WEBHOOK_SECRET 未設定のため Webhook をスキップします（ローカル開発用）")
         return {"received": False, "skipped": True, "reason": "no_webhook_secret"}
 
     if not stripe_signature:
@@ -30,19 +30,43 @@ async def stripe_webhook(
     payload = await request.body()
     try:
         event = stripe.Webhook.construct_event(payload, stripe_signature, settings.STRIPE_WEBHOOK_SECRET)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid payload")
-    except stripe.error.SignatureVerificationError:
-        raise HTTPException(status_code=400, detail="Invalid signature")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="Invalid payload") from e
+    except stripe.error.SignatureVerificationError as e:
+        raise HTTPException(status_code=400, detail="Invalid signature") from e
 
     match event["type"]:
         case "customer.subscription.created" | "customer.subscription.updated":
             sub = event["data"]["object"]
-            await db.execute(update(Subscription).where(Subscription.stripe_subscription_id == sub["id"]).values(status=sub["status"]))
-            await db.commit()
+            customer_id = sub.get("customer")
+            status_val = sub["status"]
+            plan = "paid" if status_val == "active" else "free"
+            if customer_id:
+                await db.prepare(
+                    "UPDATE subscriptions SET status = ? WHERE stripe_customer_id = ?"
+                ).bind(status_val, customer_id).run()
+                if plan == "paid":
+                    row = await db.prepare(
+                        "SELECT user_id FROM subscriptions WHERE stripe_customer_id = ?"
+                    ).bind(customer_id).first()
+                    if row:
+                        await db.prepare(
+                            "UPDATE users SET plan = ? WHERE id = ?"
+                        ).bind(plan, row["user_id"]).run()
+
         case "customer.subscription.deleted":
             sub = event["data"]["object"]
-            await db.execute(update(Subscription).where(Subscription.stripe_subscription_id == sub["id"]).values(status="canceled"))
-            await db.commit()
+            customer_id = sub.get("customer")
+            if customer_id:
+                await db.prepare(
+                    "UPDATE subscriptions SET status = 'canceled' WHERE stripe_customer_id = ?"
+                ).bind(customer_id).run()
+                row = await db.prepare(
+                    "SELECT user_id FROM subscriptions WHERE stripe_customer_id = ?"
+                ).bind(customer_id).first()
+                if row:
+                    await db.prepare(
+                        "UPDATE users SET plan = 'free' WHERE id = ?"
+                    ).bind(row["user_id"]).run()
 
     return {"received": True}

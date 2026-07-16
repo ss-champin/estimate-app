@@ -1,45 +1,30 @@
+from __future__ import annotations
+
 import uuid
 
-from fastapi import Depends, Header, HTTPException, status
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import Depends, Header, HTTPException, Request, status
+
 from app.core.config import get_settings
-from app.core.database import get_db_optional
-from app.models.db import PlanEnum, User
+from app.models.db import User
 from app.services.rate_limiter import check_and_increment
 
+LOCAL_DEV_USER_ID = "00000000000040008000000000000001"
 LOCAL_DEV_CLERK_ID = "local_dev_user"
-LOCAL_DEV_EMAIL = "dev@local.invalid"
-# フロントの LOCAL_DEV_BEARER と一致させる
-DEV_BEARER_TOKEN = "local-dev"
-
-# DB なしモード用（永続化しない・固定 ID）
-LOCAL_DEV_USER_ID = uuid.UUID("00000000-0000-4000-8000-000000000001")
 
 
 def _synthetic_local_dev_user() -> User:
-    return User(
-        id=LOCAL_DEV_USER_ID,
-        clerk_id=LOCAL_DEV_CLERK_ID,
-        email=LOCAL_DEV_EMAIL,
-        plan=PlanEnum.free,
-    )
+    return User(id=LOCAL_DEV_USER_ID, clerk_id=LOCAL_DEV_CLERK_ID, plan="free")
 
 
 def _synthetic_user_for_clerk(clerk_id: str) -> User:
     return User(
-        id=uuid.uuid5(uuid.NAMESPACE_URL, f"esti:clerk:{clerk_id}"),
+        id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"esti:clerk:{clerk_id}")).replace("-", ""),
         clerk_id=clerk_id,
-        email=f"{clerk_id[:64]}@users.clerk.placeholder",
-        plan=PlanEnum.free,
+        plan="free",
     )
 
 
 def _has_usable_clerk_jwt_public_key() -> bool:
-    """
-    実際に JWT 検証に使える PEM か。
-    .env.example のプレースホルダー（... 付き）や短い断片は「未設定」と同じ扱いにする。
-    """
     raw = (get_settings().CLERK_JWT_PUBLIC_KEY or "").strip()
     if not raw:
         return False
@@ -55,9 +40,7 @@ def _has_usable_clerk_jwt_public_key() -> bool:
         .replace("-----END RSA PUBLIC KEY-----", "")
         .strip()
     )
-    if len(body) < 80:
-        return False
-    return True
+    return len(body) >= 80
 
 
 def _local_auth_bypass_enabled() -> bool:
@@ -69,63 +52,40 @@ def _local_auth_bypass_enabled() -> bool:
     return not _has_usable_clerk_jwt_public_key()
 
 
-async def _get_or_create_local_dev_user(db: AsyncSession) -> User:
-    row = await db.execute(select(User).where(User.clerk_id == LOCAL_DEV_CLERK_ID))
-    user = row.scalar_one_or_none()
-    if user is None:
-        user = User(clerk_id=LOCAL_DEV_CLERK_ID, email=LOCAL_DEV_EMAIL, plan="free")
-        db.add(user)
-        await db.commit()
-        await db.refresh(user)
-    return user
+def get_d1(request: Request) -> object:
+    """D1 バインディングを返す。CF Workers 環境以外では None。"""
+    return getattr(request.state, "db", None)
 
 
-async def get_current_user(
-    authorization: str | None = Header(default=None),
-    db: AsyncSession | None = Depends(get_db_optional),
-) -> User:
-    if _local_auth_bypass_enabled():
-        if not authorization or not authorization.startswith("Bearer "):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="ローカル開発（Clerk未設定）: Authorization: Bearer local-dev を付与してください",
-            )
-        token = authorization.removeprefix("Bearer ").strip()
-        if token == DEV_BEARER_TOKEN:
-            if db is not None:
-                return await _get_or_create_local_dev_user(db)
-            return _synthetic_local_dev_user()
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid local dev token")
+async def _get_or_create_user(clerk_id: str, db: object) -> User:
+    """D1 から clerk_id でユーザーを取得。存在しなければ作成して返す。"""
+    row = await db.prepare(  # type: ignore[attr-defined]
+        "SELECT id, clerk_id, plan FROM users WHERE clerk_id = ?"
+    ).bind(clerk_id).first()
+    if row:
+        return User(id=row["id"], clerk_id=row["clerk_id"], plan=row["plan"] or "free")
 
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authorization header")
-    token = authorization.removeprefix("Bearer ").strip()
-    clerk_id = _verify_clerk_token(token)
-    if db is not None:
-        row = await db.execute(select(User).where(User.clerk_id == clerk_id))
-        user = row.scalar_one_or_none()
-        if user is None:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
-        return user
-    return _synthetic_user_for_clerk(clerk_id)
+    new_id = str(uuid.uuid4()).replace("-", "")
+    placeholder_email = f"{clerk_id[:64]}@users.clerk.placeholder"
+    await db.prepare(  # type: ignore[attr-defined]
+        "INSERT OR IGNORE INTO users (id, clerk_id, email, plan) VALUES (?, ?, ?, 'free')"
+    ).bind(new_id, clerk_id, placeholder_email).run()
 
-
-def _clerk_jwt_pem() -> str:
-    """.env の PEM は \\n エスケープのことがある。pydantic は os.environ に載せないため get_settings() を使う。"""
-    raw = (get_settings().CLERK_JWT_PUBLIC_KEY or "").strip()
-    if not raw:
-        return ""
-    return raw.replace("\\n", "\n")
+    row = await db.prepare(  # type: ignore[attr-defined]
+        "SELECT id, clerk_id, plan FROM users WHERE clerk_id = ?"
+    ).bind(clerk_id).first()
+    return User(id=row["id"], clerk_id=row["clerk_id"], plan=row["plan"] or "free")
 
 
 def _verify_clerk_token(token: str) -> str:
     from jose import JWTError, jwt
 
-    key = _clerk_jwt_pem()
+    raw = (get_settings().CLERK_JWT_PUBLIC_KEY or "").strip()
+    key = raw.replace("\\n", "\n")
     if not key:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="CLERK_JWT_PUBLIC_KEY が未設定です。backend/.env.local に設定するか、ローカルではキーを空にして Bearer local-dev を使ってください。",
+            detail="CLERK_JWT_PUBLIC_KEY が未設定です。",
         )
     try:
         payload = jwt.decode(token, key, algorithms=["RS256"], options={"verify_aud": False})
@@ -134,12 +94,41 @@ def _verify_clerk_token(token: str) -> str:
             raise JWTError("sub missing")
         return clerk_id
     except JWTError as e:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid token: {e}") from e
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid token: {e}"
+        ) from e
+
+
+async def get_current_user(
+    request: Request,
+    authorization: str | None = Header(default=None),
+    db: object = Depends(get_d1),  # noqa: B008
+) -> User:
+    if _local_auth_bypass_enabled():
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authorization: Bearer local-dev を付与してください",
+            )
+        if db is not None:
+            return await _get_or_create_user(LOCAL_DEV_CLERK_ID, db)
+        return _synthetic_local_dev_user()
+
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authorization header"
+        )
+    token = authorization.removeprefix("Bearer ").strip()
+    clerk_id = _verify_clerk_token(token)
+
+    if db is not None:
+        return await _get_or_create_user(clerk_id, db)
+    return _synthetic_user_for_clerk(clerk_id)
 
 
 async def get_current_user_with_limit(
-    user: User = Depends(get_current_user),
-    db: AsyncSession | None = Depends(get_db_optional),
+    user: User = Depends(get_current_user),  # noqa: B008
+    db: object = Depends(get_d1),  # noqa: B008
 ) -> User:
     await check_and_increment(user, db)
     return user

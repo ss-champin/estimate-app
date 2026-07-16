@@ -1,7 +1,11 @@
 import Link from "next/link"
+import { auth } from "@clerk/nextjs/server"
 import { AppNav } from "@/components/layout/AppNav"
+import { AppShell } from "@/components/layout/AppShell"
+import { Footer } from "@/components/layout/Footer"
 import { Button } from "@/components/ui"
 import { cn } from "@/lib/utils"
+import { isClerkConfigured } from "@/lib/clerk-config"
 
 const features = [
   { icon: "📝", title: "テキストをAI解析", desc: "案件タイトルと本文を貼るだけ。要件の粒度・難易度のたたきを読み取り、見積もりの土台を作ります。" },
@@ -19,11 +23,15 @@ const steps = [
   { num: "04", title: "コピーして送信", desc: "生成された返信メッセージをそのままDMに貼り付けて送るだけ" },
 ]
 
-export default function LandingPage() {
+async function isLoggedIn(): Promise<boolean> {
+  if (!isClerkConfigured()) return true  // dev モードは常にログイン扱い
+  const { userId } = await auth()
+  return !!userId
+}
+
+function PageContent() {
   return (
     <main>
-      <AppNav />
-
       {/* ── Hero ── */}
       <section className="bg-[var(--ink)] relative overflow-hidden min-h-[580px] flex items-center">
         <div
@@ -100,9 +108,7 @@ export default function LandingPage() {
                     className="flex items-center justify-between px-3.5 py-2.5 bg-white/[0.03] border border-white/[0.05] rounded-lg"
                   >
                     <span className="text-[12px] text-white/38">{k}</span>
-                    <span
-                      className={`text-[14px] ${accent ? "text-[var(--teal-l)] font-medium" : "text-white/80"}`}
-                    >
+                    <span className={`text-[14px] ${accent ? "text-[var(--teal-l)] font-medium" : "text-white/80"}`}>
                       {v}
                     </span>
                   </div>
@@ -171,5 +177,21 @@ export default function LandingPage() {
         <p className="text-[11px] text-white/18 mt-8 tracking-wide">月500円のPro · 14日間お試し · いつでも解約可</p>
       </section>
     </main>
+  )
+}
+
+export default async function LandingPage() {
+  const loggedIn = await isLoggedIn()
+
+  if (loggedIn) {
+    return <AppShell><PageContent /></AppShell>
+  }
+
+  return (
+    <>
+      <AppNav />
+      <PageContent />
+      <Footer />
+    </>
   )
 }

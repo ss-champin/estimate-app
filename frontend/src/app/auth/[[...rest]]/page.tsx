@@ -1,8 +1,11 @@
 import Link from "next/link"
-import { SignIn } from "@clerk/nextjs"
+import { SignIn, SignUp } from "@clerk/nextjs"
 import { isClerkConfigured } from "@/lib/clerk-config"
 
-export default function AuthPage() {
+export default async function AuthPage({ params }: { params: Promise<{ rest?: string[] }> }) {
+  const { rest } = await params
+  const isSignUp = rest?.includes("sign-up")
+
   if (!isClerkConfigured()) {
     return (
       <div className="min-h-screen bg-[var(--ink)] flex flex-col items-center justify-center gap-6 px-6">
@@ -17,6 +20,7 @@ export default function AuthPage() {
       </div>
     )
   }
+
   return (
     <div className="min-h-screen bg-[var(--ink)] flex items-center justify-center">
       <div className="text-center mb-6 absolute top-10 left-1/2 -translate-x-1/2">
@@ -29,7 +33,10 @@ export default function AuthPage() {
           <span className="font-mono text-lg font-medium text-white">EstiMate</span>
         </div>
       </div>
-      <SignIn afterSignInUrl="/dashboard" afterSignUpUrl="/dashboard" />
+      {isSignUp
+        ? <SignUp fallbackRedirectUrl="/dashboard" />
+        : <SignIn fallbackRedirectUrl="/dashboard" />
+      }
     </div>
   )
 }

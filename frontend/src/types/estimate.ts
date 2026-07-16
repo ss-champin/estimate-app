@@ -61,3 +61,11 @@ export interface EstimateHistory {
   ai_provider: string
   created_at: string
 }
+
+export interface EstimateDetail {
+  id: string
+  title: string
+  ai_provider: string
+  created_at: string
+  result: EstimateOutput
+}

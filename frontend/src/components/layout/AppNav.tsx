@@ -21,7 +21,6 @@ export function AppNav() {
           <>
             <span className="font-mono text-[10px] text-[var(--muted)] border border-[var(--border)] rounded px-2 py-0.5">dev（Clerkなし）</span>
             <Link href="/estimate/new"><Button variant="teal" size="sm">見積もりを作る →</Button></Link>
-            <Link href="/dashboard"><Button variant="ghost" size="sm">ダッシュボード</Button></Link>
           </>
         ) : (
           <>

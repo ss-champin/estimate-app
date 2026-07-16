@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "estimate-app-backend",
+  "main": "../backend/app/main.py",
+  "compatibility_date": "2026-07-01",
+  "compatibility_flags": ["python_workers"],
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "estimate-cf-dev",
+      "database_id": "f1f80231-28f9-4273-bafe-febd1debe237"
+    }
+  ],
+
+  // 非機密の固定値。機密値は wrangler secret put で設定する
+  "vars": {
+    "APP_ENV": "production"
+  }
+}

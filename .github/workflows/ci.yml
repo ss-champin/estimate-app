@@ -2,12 +2,17 @@ name: CI/CD
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
   pull_request:
     branches: [main]
 
 jobs:
-  backend:
+  # ──────────────────────────────────────────────
+  # CI — Lint / Test（PR と main push 両方で実行）
+  # ──────────────────────────────────────────────
+
+  lint-backend:
+    name: Backend Lint
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -18,9 +23,21 @@ jobs:
       - run: uv sync
       - run: uv run ruff check app/
       - run: uv run ruff format --check app/
-      - run: uv run pytest tests/ -v --tb=short
 
-  frontend:
+  test-backend:
+    name: Backend Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - run: uv sync
+      - run: APP_ENV=local uv run pytest tests/ -v --tb=short
+
+  lint-frontend:
+    name: Frontend Lint / Type / Test
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -33,33 +50,60 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test:run
 
+  # ──────────────────────────────────────────────
+  # Deploy — main push のみ実行
+  # ──────────────────────────────────────────────
+
   deploy-backend:
-    needs: backend
+    name: Deploy Backend (Python Worker)
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [lint-backend, test-backend, lint-frontend]
     runs-on: ubuntu-latest
     concurrency:
-      group: fly-deploy-main
+      group: deploy-backend
       cancel-in-progress: true
+    defaults:
+      run:
+        working-directory: worker
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
-      - uses: superfly/flyctl-actions/setup-flyctl@1.5
-      - run: cd backend && fly deploy --remote-only
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      - uses: jdx/mise-action@v2
+      - run: pnpm install
+      - run: pnpm exec wrangler deploy
 
   deploy-frontend:
-    needs: frontend
+    name: Deploy Frontend (OpenNext + Workers)
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [lint-backend, test-backend, lint-frontend]
     runs-on: ubuntu-latest
     concurrency:
-      group: vercel-deploy-main
+      group: deploy-frontend
       cancel-in-progress: true
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
-      - uses: amondnet/vercel-action@v25
-        with:
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
-          vercel-args: "--prod"
-          working-directory: frontend
+      - uses: jdx/mise-action@v2
+      - run: pnpm install
+
+      # NEXT_PUBLIC_* はビルド時に埋め込まれるため、ここで環境変数として渡す
+      - name: Build for Cloudflare
+        run: pnpm build:cf
+        env:
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+          NEXT_PUBLIC_APP_URL: ${{ secrets.NEXT_PUBLIC_APP_URL }}
+          NEXT_PUBLIC_CLERK_SIGN_IN_URL: /auth
+          NEXT_PUBLIC_CLERK_SIGN_UP_URL: /auth/sign-up
+          NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL: /dashboard
+          NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL: /dashboard
+
+      - name: Deploy to Cloudflare Workers
+        run: pnpm exec wrangler deploy

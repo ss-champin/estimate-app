@@ -97,6 +97,8 @@ function EstimateFormInner({ getToken }: { getToken: GetToken }) {
       const err = e as { message?: string; status?: number }
       if (err.status === 429) {
         toast.error("本日の生成回数上限に達しました。明日またご利用ください。")
+      } else if (err.status === 503) {
+        toast.error("AIモデルが混雑しています。しばらくしてから再試行してください。")
       } else {
         toast.error(err.message || "生成に失敗しました。もう一度お試しください。")
       }

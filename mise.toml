@@ -5,7 +5,7 @@
 
 [tools]
 python = "3.12"
-node   = "20"
+node   = "22"
 uv     = "latest"
 pnpm   = "latest"
 ruff   = "latest"
@@ -14,15 +14,17 @@ ruff   = "latest"
 experimental = true
 
 [env]
-BACKEND_DIR  = "{{cwd}}/backend"
-FRONTEND_DIR = "{{cwd}}/frontend"
-E2E_DIR      = "{{cwd}}/e2e"
-APP_ENV      = "local"
+BACKEND_DIR        = "{{cwd}}/backend"
+FRONTEND_DIR       = "{{cwd}}/frontend"
+E2E_DIR            = "{{cwd}}/e2e"
+CF_WORKER_DIR      = "{{cwd}}/../estimate-cf/worker"
+APP_WORKER_DIR     = "{{cwd}}/worker"
+APP_ENV            = "local"
 
 # ── SETUP ───────────────────────────────────────────────────
 [tasks.setup]
 description = "🏗  全環境を一括セットアップ"
-depends     = ["setup:backend", "setup:frontend", "setup:e2e"]
+depends     = ["setup:backend", "setup:frontend", "setup:e2e", "setup:cf"]
 run         = "echo '✅ セットアップ完了'"
 
 [tasks."setup:backend"]
@@ -50,6 +52,15 @@ run         = """
 pnpm install
 pnpm exec playwright install --with-deps chromium
 echo "✅ E2E完了"
+"""
+
+[tasks."setup:cf"]
+description = "☁️  CF Worker セットアップ（pnpm install + D1 ローカル migration）"
+dir         = "{{env.CF_WORKER_DIR}}"
+run         = """
+pnpm install
+pnpm d1:migrate:local
+echo "✅ CF Worker セットアップ完了"
 """
 
 # ── CLEAN ───────────────────────────────────────────────────
@@ -88,23 +99,48 @@ depends     = ["clean", "setup"]
 
 # ── DEV ─────────────────────────────────────────────────────
 [tasks.dev]
-description = "🚀 フロント & バックエンドを同時起動"
-run         = "mise run db:up && (mise run dev:backend & mise run dev:frontend & wait)"
+description = "🚀 フロント・バックエンド・CF Worker を同時起動"
+run         = "(mise run dev:backend & mise run dev:frontend & mise run dev:cf & wait)"
 
 [tasks."dev:backend"]
-description = "🐍 FastAPI 開発サーバー（ホットリロード）"
-dir         = "{{env.BACKEND_DIR}}"
-run         = "APP_ENV=local uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
+description = "🐍 FastAPI (Python Workers) 開発サーバー"
+dir         = "{{env.APP_WORKER_DIR}}"
+run         = "pnpm exec wrangler dev --port 8000"
 
 [tasks."dev:frontend"]
 description = "⚛️  Next.js 開発サーバー（Turbopack）"
 dir         = "{{env.FRONTEND_DIR}}"
 run         = "pnpm dev"
 
+[tasks."dev:cf"]
+description = "☁️  CF Worker 開発サーバー（wrangler dev + Docker Desktop / Colima 自動検出）"
+dir         = "{{env.CF_WORKER_DIR}}"
+run         = """
+# Docker Desktop（デフォルトソケット）→ Colima の順で試す
+if ! docker info > /dev/null 2>&1; then
+  if [ -S "$HOME/.colima/default/docker.sock" ] && DOCKER_HOST="unix://$HOME/.colima/default/docker.sock" docker info > /dev/null 2>&1; then
+    export DOCKER_HOST="unix://$HOME/.colima/default/docker.sock"
+  else
+    echo "❌ Docker が起動していません。Docker Desktop を起動するか colima start を実行してください。"
+    exit 1
+  fi
+fi
+pnpm dev
+"""
+
 # ── DB ──────────────────────────────────────────────────────
 [tasks."db:up"]
-description = "🐘 ローカルPostgreSQL起動（Docker）"
+description = "🐘 ローカルPostgreSQL起動（Docker Desktop / Colima 自動検出）"
 run         = """
+# Docker Desktop（デフォルトソケット）→ Colima の順で試す
+if ! docker info > /dev/null 2>&1; then
+  if [ -S "$HOME/.colima/default/docker.sock" ] && DOCKER_HOST="unix://$HOME/.colima/default/docker.sock" docker info > /dev/null 2>&1; then
+    export DOCKER_HOST="unix://$HOME/.colima/default/docker.sock"
+  else
+    echo "❌ Docker が起動していません。Docker Desktop を起動するか colima start を実行してください。"
+    exit 1
+  fi
+fi
 docker compose up -d postgres
 until docker compose exec postgres pg_isready -U estimate -d estimate_dev -q 2>/dev/null; do sleep 1; done
 echo "✅ PostgreSQL起動完了 → localhost:5432"
@@ -121,6 +157,17 @@ run         = "docker compose down -v && mise run db:up"
 [tasks."db:psql"]
 description = "🔌 ローカルDBにpsqlで接続"
 run         = "docker compose exec postgres psql -U estimate -d estimate_dev"
+
+# ── D1 (Cloudflare) ──────────────────────────────────────────
+[tasks."d1:migrate:local"]
+description = "🗄  D1 ローカル migration 適用"
+dir         = "{{env.CF_WORKER_DIR}}"
+run         = "pnpm d1:migrate:local"
+
+[tasks."d1:migrate:remote"]
+description = "🗄  D1 本番 migration 適用"
+dir         = "{{env.CF_WORKER_DIR}}"
+run         = "pnpm d1:migrate:remote"
 
 # ── MIGRATE ─────────────────────────────────────────────────
 [tasks.migrate]
@@ -278,25 +325,50 @@ run         = "vercel logs estimate-frontend"
 
 # ── DEPLOY ──────────────────────────────────────────────────
 [tasks."deploy:backend"]
-description = "🚀 Fly.ioにバックエンドをデプロイ"
-dir         = "{{env.BACKEND_DIR}}"
+description = "🚀 Cloudflare Python Workers に FastAPI バックエンドをデプロイ"
+dir         = "{{env.APP_WORKER_DIR}}"
 run         = """
-echo "🗄  本番マイグレーション実行..."
-APP_ENV=production uv run alembic upgrade head
-echo "🚀 Fly.ioにデプロイ中..."
-fly deploy
+pnpm install
+pnpm exec wrangler deploy
 echo "✅ Backend デプロイ完了"
 """
 
+[tasks."deploy:backend:secrets"]
+description = "🔑 バックエンド Worker のシークレットを Cloudflare に登録"
+dir         = "{{env.APP_WORKER_DIR}}"
+run         = "bash scripts/set-secrets.sh"
+
+[tasks."deploy:cf"]
+description = "🚀 D1 migration 実行 + estimate-cf Worker をデプロイ"
+dir         = "{{env.CF_WORKER_DIR}}"
+run         = """
+pnpm install
+echo "🗄  D1 本番 migration..."
+pnpm d1:migrate:remote
+echo "🚀 wrangler deploy..."
+pnpm deploy
+echo "✅ CF Worker デプロイ完了"
+"""
+
 [tasks."deploy:frontend"]
-description = "🚀 Vercelにフロントエンドをデプロイ"
+description = "🚀 Cloudflare Workers に Next.js フロントエンドをデプロイ"
 dir         = "{{env.FRONTEND_DIR}}"
-run         = "vercel --prod && echo '✅ Frontend デプロイ完了'"
+run         = """
+echo "📦 Cloudflare 向けビルド..."
+pnpm build:cf
+echo "🚀 wrangler deploy..."
+pnpm exec wrangler deploy
+echo "✅ Frontend デプロイ完了"
+"""
 
 [tasks.deploy]
-description = "🚀 全環境を本番にデプロイ"
-depends     = ["deploy:backend", "deploy:frontend"]
-run         = "echo '🎉 全デプロイ完了'"
+description = "🚀 全サービスを Cloudflare にデプロイ（CF Worker → Backend → Frontend の順）"
+run         = """
+mise run deploy:cf
+mise run deploy:backend
+mise run deploy:frontend
+echo '🎉 全デプロイ完了'
+"""
 
 # ── CI ──────────────────────────────────────────────────────
 [tasks.ci]

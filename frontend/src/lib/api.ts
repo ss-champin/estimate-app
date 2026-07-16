@@ -1,4 +1,4 @@
-import type { EstimateAPIResponse, EstimateRequest, UsageStatus, EstimateHistory } from "@/types/estimate"
+import type { EstimateAPIResponse, EstimateRequest, UsageStatus, EstimateHistory, EstimateDetail } from "@/types/estimate"
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
 
@@ -18,3 +18,6 @@ export const getUsageStatus = (token: string) =>
 
 export const getEstimateHistory = (token: string) =>
   req<EstimateHistory[]>("/api/estimates", {}, token)
+
+export const getEstimateById = (id: string, token: string) =>
+  req<EstimateDetail>(`/api/estimates/${id}`, {}, token)

@@ -1,15 +1,17 @@
 from __future__ import annotations
+
+import json
 import logging
 import os
-import threading
-from pydantic_ai import Agent
-from pydantic_ai.output import NativeOutput
-from app.models.estimate import EstimateDeps, EstimateOutput
+
+import httpx
+
+from app.models.estimate import EstimateOutput
 
 logger = logging.getLogger(__name__)
 
-MODEL_FREE = "google-gla:gemini-2.5-flash-lite"
-MODEL_PAID = "anthropic:claude-haiku-4-5-20251001"
+MODEL_FREE = "gemini-2.5-flash-lite"
+MODEL_PAID = "claude-haiku-4-5-20251001"
 
 SYSTEM_PROMPT = """
 あなたはフリーランスエンジニア専門の見積もりアドバイザーAIです。
@@ -60,81 +62,82 @@ revision / delivery / spec_change / payment / copyright
 """.strip()
 
 
-_agent_lock = threading.Lock()
-_agent_free: Agent[EstimateDeps, EstimateOutput] | None = None
-_agent_paid: Agent[EstimateDeps, EstimateOutput] | None = None
-_agents_initialized = False
+def gemini_key() -> str:
+    return os.environ.get("GEMINI_API_KEY", "")
 
 
-def _ensure_google_env() -> None:
-    from app.core.config import apply_ai_keys_to_environ
-
-    apply_ai_keys_to_environ()
-
-
-def _google_key_available() -> bool:
-    _ensure_google_env()
-    return bool((os.getenv("GOOGLE_API_KEY") or "").strip())
-
-
-def _anthropic_key_available() -> bool:
-    return bool((os.getenv("ANTHROPIC_API_KEY") or "").strip())
-
-
-def _make_agent(model: str) -> Agent[EstimateDeps, EstimateOutput]:
-    # Google/Gemini は NativeOutput と function tools の併用不可のため、
-    # 案件本文はプロンプトに含めて渡す（pydantic_ai UserError 回避）。
-    return Agent(
-        model=model,
-        deps_type=EstimateDeps,
-        output_type=NativeOutput(EstimateOutput),
-        system_prompt=SYSTEM_PROMPT,
-    )
-
-
-def _init_agents_if_needed() -> None:
-    global _agent_free, _agent_paid, _agents_initialized
-    with _agent_lock:
-        if _agents_initialized:
-            return
-        _ensure_google_env()
-        _agents_initialized = True
-        if _google_key_available():
-            try:
-                _agent_free = _make_agent(MODEL_FREE)
-            except Exception as e:
-                logger.warning("無料枠AIエージェントの初期化に失敗しました（キー未設定の可能性）: %s", e)
-        if _anthropic_key_available():
-            try:
-                _agent_paid = _make_agent(MODEL_PAID)
-            except Exception as e:
-                logger.warning("有料枠AIエージェントの初期化に失敗しました: %s", e)
-
-
-def ai_agents_available() -> bool:
-    _init_agents_if_needed()
-    return _agent_free is not None
-
-
-def get_estimate_agent(user_plan: str = "free") -> Agent[EstimateDeps, EstimateOutput] | None:
-    _init_agents_if_needed()
-    if _agent_free is None:
-        return None
-    is_local = os.getenv("APP_ENV", "local") == "local"
-    if is_local or user_plan != "paid":
-        return _agent_free
-    if _agent_paid is not None:
-        return _agent_paid
-    return _agent_free
+def anthropic_key() -> str:
+    return os.environ.get("ANTHROPIC_API_KEY", "")
 
 
 def get_model_name(user_plan: str = "free") -> str:
-    _init_agents_if_needed()
-    if _agent_free is None:
-        return "mock-offline"
-    is_local = os.getenv("APP_ENV", "local") == "local"
-    if is_local or user_plan != "paid":
-        return "gemini-2.5-flash-lite"
-    if _agent_paid is not None:
-        return "claude-haiku-4-5"
-    return "gemini-2.5-flash-lite"
+    is_local = os.environ.get("APP_ENV", "local") == "local"
+    if is_local or user_plan != "paid" or not anthropic_key():
+        return MODEL_FREE
+    return MODEL_PAID
+
+
+def ai_agents_available() -> bool:
+    return bool(gemini_key())
+
+
+async def call_gemini(prompt: str) -> EstimateOutput:
+    api_key = gemini_key()
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"gemini-2.5-flash-lite:generateContent?key={api_key}"
+    )
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "temperature": 0.3,
+        },
+    }
+    async with httpx.AsyncClient(timeout=90.0) as client:
+        resp = await client.post(url, json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+
+    candidates = data.get("candidates", [])
+    if not candidates:
+        raise ValueError(f"Gemini レスポンスに candidates がありません: {data}")
+    text = candidates[0]["content"]["parts"][0]["text"]
+    return EstimateOutput.model_validate(json.loads(text))
+
+
+async def call_claude(prompt: str) -> EstimateOutput:
+    api_key = anthropic_key()
+    schema = EstimateOutput.model_json_schema()
+    payload = {
+        "model": MODEL_PAID,
+        "max_tokens": 4096,
+        "system": SYSTEM_PROMPT,
+        "messages": [{"role": "user", "content": prompt}],
+        "tools": [
+            {
+                "name": "create_estimate",
+                "description": "見積もりデータを構造化して返す",
+                "input_schema": schema,
+            }
+        ],
+        "tool_choice": {"type": "tool", "name": "create_estimate"},
+    }
+    async with httpx.AsyncClient(timeout=90.0) as client:
+        resp = await client.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json=payload,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+    tool_block = next((b for b in data.get("content", []) if b.get("type") == "tool_use"), None)
+    if not tool_block:
+        raise ValueError(f"Claude レスポンスに tool_use ブロックがありません: {data}")
+    return EstimateOutput.model_validate(tool_block["input"])
