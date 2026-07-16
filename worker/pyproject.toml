@@ -1,0 +1,17 @@
+[project]
+name = "estimate-app-backend"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi",
+    "httpx",
+    "pydantic",
+    "python-multipart",
+    "python-jose",
+    "stripe",
+]
+
+[dependency-groups]
+dev = [
+    "workers-py",
+]

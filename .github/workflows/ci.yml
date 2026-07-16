@@ -72,6 +72,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v2
       - run: pnpm install
+      - run: uv tool install workers-py
+      - run: pywrangler sync
       - run: pnpm exec wrangler deploy
 
   deploy-frontend:

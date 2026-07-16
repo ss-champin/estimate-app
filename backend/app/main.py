@@ -1,8 +1,18 @@
 from __future__ import annotations
 
 import logging
+import os as _os
 import sys
 import traceback
+import types as _types
+
+# In Cloudflare Workers, app/* is bundled directly at the module root (not inside an
+# 'app/' subdirectory). Inject a virtual 'app' package so absolute imports work.
+if "app" not in sys.modules:
+    _app_mod = _types.ModuleType("app")
+    _app_mod.__path__ = [_os.path.dirname(_os.path.abspath(__file__))]
+    _app_mod.__package__ = "app"
+    sys.modules["app"] = _app_mod
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -74,3 +84,18 @@ app.include_router(health.router)
 app.include_router(estimate.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
 app.include_router(stripe_webhook.router, prefix="/api")
+
+
+# Cloudflare Python Workers entry point.
+# `workers` and `asgi` are pre-installed in the Cloudflare Pyodide runtime.
+# The try/except makes the file importable in normal Python environments too.
+try:
+    import asgi as _asgi
+    from workers import WorkerEntrypoint
+
+    class Default(WorkerEntrypoint):
+        async def fetch(self, request):
+            return await _asgi.fetch(app, request, self.env)
+
+except ImportError:
+    pass
