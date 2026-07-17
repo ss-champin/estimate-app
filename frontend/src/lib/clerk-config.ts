@@ -4,7 +4,7 @@
  */
 export function isClerkConfigured(): boolean {
   const key = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim() ?? ""
-  return key.startsWith("pk_") && key.length >= 40
+  return (key.startsWith("pk_test_") || key.startsWith("pk_live_")) && key.length >= 20
 }
 
 /** バックエンドのローカル開発用 Bearer（Clerk 未設定時と揃える） */

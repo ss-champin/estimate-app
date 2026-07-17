@@ -4,7 +4,7 @@ import { NextResponse } from "next/server"
 const isPublic = createRouteMatcher(["/", "/auth(.*)", "/pricing"])
 
 const pk = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim() ?? ""
-const clerkConfigured = pk.startsWith("pk_") && pk.length >= 40
+const clerkConfigured = (pk.startsWith("pk_test_") || pk.startsWith("pk_live_")) && pk.length >= 20
 
 export default clerkConfigured
   ? clerkMiddleware(async (auth, req) => {
