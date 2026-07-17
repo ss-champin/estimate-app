@@ -81,6 +81,25 @@ def ai_agents_available() -> bool:
     return bool(gemini_key())
 
 
+def _gemini_response_schema() -> dict:
+    """EstimateOutput の Pydantic スキーマを Gemini responseSchema 形式に変換する。"""
+    schema = EstimateOutput.model_json_schema()
+    # Gemini は $defs / $ref を展開する必要がある
+    defs = schema.pop("$defs", {})
+
+    def _resolve(obj: object) -> object:
+        if not isinstance(obj, dict):
+            return obj
+        if "$ref" in obj:
+            name = obj["$ref"].split("/")[-1]
+            return _resolve(defs.get(name, obj))
+        return {k: _resolve(v) for k, v in obj.items()}
+
+    resolved = _resolve(schema)
+    # Gemini は title / description を無視するが残しても問題ない
+    return resolved
+
+
 async def call_gemini(prompt: str) -> EstimateOutput:
     api_key = gemini_key()
     url = (
@@ -92,6 +111,7 @@ async def call_gemini(prompt: str) -> EstimateOutput:
         "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
         "generationConfig": {
             "responseMimeType": "application/json",
+            "responseSchema": _gemini_response_schema(),
             "temperature": 0.3,
         },
     }
