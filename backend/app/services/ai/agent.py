@@ -81,10 +81,16 @@ def ai_agents_available() -> bool:
     return bool(gemini_key())
 
 
+_GEMINI_UNSUPPORTED = {"exclusiveMinimum", "exclusiveMaximum", "title", "default", "$schema"}
+
+
 def _gemini_response_schema() -> dict:
-    """EstimateOutput の Pydantic スキーマを Gemini responseSchema 形式に変換する。"""
+    """EstimateOutput の Pydantic スキーマを Gemini responseSchema 形式に変換する。
+
+    Gemini は $ref/$defs・exclusiveMinimum・title・default を受け付けないため除去する。
+    exclusiveMinimum: 0 (gt=0) は integer の場合 minimum: 1 に変換する。
+    """
     schema = EstimateOutput.model_json_schema()
-    # Gemini は $defs / $ref を展開する必要がある
     defs = schema.pop("$defs", {})
 
     def _resolve(obj: object) -> object:
@@ -93,11 +99,17 @@ def _gemini_response_schema() -> dict:
         if "$ref" in obj:
             name = obj["$ref"].split("/")[-1]
             return _resolve(defs.get(name, obj))
-        return {k: _resolve(v) for k, v in obj.items()}
+        out: dict = {}
+        for k, v in obj.items():
+            if k in _GEMINI_UNSUPPORTED:
+                # exclusiveMinimum: 0 → minimum: 1 (integer のみ)
+                if k == "exclusiveMinimum" and isinstance(v, (int, float)) and v == 0:
+                    out["minimum"] = 1
+                continue
+            out[k] = _resolve(v)
+        return out
 
-    resolved = _resolve(schema)
-    # Gemini は title / description を無視するが残しても問題ない
-    return resolved
+    return _resolve(schema)
 
 
 async def call_gemini(prompt: str) -> EstimateOutput:
